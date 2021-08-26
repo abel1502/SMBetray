@@ -127,6 +127,8 @@ class SMBetray(ebcLib.MiTMModule):
 	# This function is called by the MiTMModule.__init__
 	def setup(self):
 		self.SMBTool		= None
+		self.SMB1ToolClass  = SMB1_Lib
+		self.SMB2ToolClass  = SMB2_Lib
 
 		# This is a make-shift solution to SMB messages that get broken up, such as 
 		# read responses which may be broken down to 1500 bytes per message. 
@@ -174,13 +176,13 @@ class SMBetray(ebcLib.MiTMModule):
 
 		# Handle SMBv1 packets
 		if request[4:8] == SMB1_Header:
-			if not isinstance(self.SMBTool, SMB1_Lib):
-				self.SMBTool = SMB1_Lib(self.info, self.MiTMModuleConfig)
+			if not isinstance(self.SMBTool, self.SMB1ToolClass):
+				self.SMBTool = self.SMB1ToolClass(self.info, self.MiTMModuleConfig)
 			return self.SMBTool.handleRequest(request)
 		# Handle SMBv2 packets
 		if request[4:8] == SMB2_Header:
-			if not isinstance(self.SMBTool, SMB2_Lib):
-				self.SMBTool = SMB2_Lib(self.info, self.MiTMModuleConfig)
+			if not isinstance(self.SMBTool, self.SMB2ToolClass):
+				self.SMBTool = self.SMB2ToolClass(self.info, self.MiTMModuleConfig)
 			return self.SMBTool.handleRequest(request)
 
 		# Else, pass it along
