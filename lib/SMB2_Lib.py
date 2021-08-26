@@ -7,7 +7,6 @@ from impacket import nt_errors
 import struct
 from impacket.krb5.asn1 import *
 import tempfile
-import socket
 import copy
 from random import randint
 from impacket import spnego
@@ -16,17 +15,13 @@ import logging
 import traceback
 import os
 from binascii import hexlify, unhexlify
-from SMB_Core import SMB_Core, SMBKey, FileRequestStruct, NTLMV2_Struct, SystemInfo
+from .SMB_Core import SMB_Core, SMBKey, FileRequestStruct, NTLMV2_Struct, SystemInfo
 import copy
 
-import pylnk
+import pylnk3 as pylnk
 
-import time
-
-from SMB_Core import SMBKey
-from ebcLib import MiTMModule
+from .ebcLib import MiTMModule
 from binascii import hexlify, unhexlify
-import hashlib
 import traceback
 from pyasn1.codec.der import decoder, encoder
 from impacket.krb5.crypto import Key, _enctype_table
@@ -38,8 +33,6 @@ from pyasn1.error import PyAsn1Error
 # For session key & signature computation
 from Crypto.Cipher import ARC4
 from impacket import crypto
-import hashlib
-import hmac
 
 EXECUTABLE_EXTENSIONS = ["exe", "msi", "lnk", "war", "jsp", "vbs", "vb"]
 
@@ -155,7 +148,7 @@ class SMB2_Lib(object):
 				# Required after the last iteration to get the remaining data
 				smbMessages.append(SMB2Packet(data = copy.deepcopy(data[z:])))
 				return smbMessages
-		except Exception, e:
+		except Exception as e:
 			self.logger.error("[SMB2_Lib::splitSMBChainedMessages] " + str(traceback.format_exc()))
 			return data
 	# Rejoin the split SMB2 packets to one large
@@ -243,12 +236,12 @@ class SMB2_Lib(object):
 		try:
 			fname 		= fname.decode("utf-16le").encode("utf-8")
 			pass
-		except UnicodeDecodeError, e:
+		except UnicodeDecodeError as e:
 			if(str(e).find("truncated data") > -1):
 				self.logger.debug("[SMB2_Lib::handleRequest]Caught unicode error - trying makeshift solution")
 				try:
 					fname 	= (fname + '\x00').decode("utf-16le").encode("utf-8")
-				except UnicodeDecodeError, e:
+				except UnicodeDecodeError as e:
 					self.logger.critical(str(fname) + " - " + str(e))
 
 		shortName = fname[fname.rfind("\\", 0, len(fname))+1:].lower()
@@ -485,7 +478,7 @@ class SMB2_Lib(object):
 							del(self.NTLMV2_DATASTORE[-1]) 
 							# self.info['poppedCredsDB_Lock'].release()
 							return
-						except Exception, e:
+						except Exception as e:
 							self.logger.error(str(e) + " " + traceback.format_exc())
 							pass
 				else:
@@ -543,7 +536,7 @@ class SMB2_Lib(object):
 				self.KNOWN_KEY 	= SMBKey(sessionBaseKey = newSessionKey.contents[:16], dialect = self.SESSION_DIALECT, kerbSessionKey = smbKey.KERBEROS_SESSION_KEY, kerbServiceSessionKey = newSessionKey.contents)
 				self.info['smbKeyChain'][hash(self.KNOWN_KEY)] = self.KNOWN_KEY
 				break
-			except Exception, e:
+			except Exception as e:
 				# self.logger.info("FAILED TO POP MUTUAL AUTH WITH \n" + str(smbKey))
 				# print(str(e))
 				continue
@@ -706,7 +699,7 @@ class SMB2_Lib(object):
 					buff += str(fileInfo)
 					buff += str('\x00' * ((8 - (len(str(fileInfo)) % 8)) % 8))
 				data = data[nextOffset:]
-			except Exception, e:
+			except Exception as e:
 				m = self.logger.error(str(traceback.format_exc()))
 				self.logger.error("[SMB2_Lib::findResp_injectFileListing] " + str(m))
 				break
@@ -957,7 +950,7 @@ class SMB2_Lib(object):
 				buff += str('\x00' * ((8 - (len(str(fileInfo)) % 8)) % 8))
 				data = data[nextOffset:]
 				continue				
-			except Exception, e:
+			except Exception as e:
 				m = self.logger.error(str(traceback.format_exc()))
 				self.logger.error("[SMB2_Lib::findResp_backdoorFileNameModifyListing] " + str(m))
 				break
@@ -1028,7 +1021,7 @@ class SMB2_Lib(object):
 
 				continue				
 
-			except Exception, e:
+			except Exception as e:
 				m = self.logger.error(str(traceback.format_exc()))
 				self.logger.error("[SMB2_Lib::findResp_backdoorFileNameModifyListing] " + str(m))
 				break
@@ -1127,7 +1120,7 @@ class SMB2_Lib(object):
 
 					del(fileInfo)
 
-			except Exception, e:
+			except Exception as e:
 				m = self.logger.error(str(traceback.format_exc()))
 				self.logger.error("[SMB2_Lib::findResp_injectFileListing] " + str(m))
 				break
@@ -1220,7 +1213,7 @@ class SMB2_Lib(object):
 
 					del(fileInfo)
 
-			except Exception, e:
+			except Exception as e:
 				m = self.logger.error(str(traceback.format_exc()))
 				self.logger.error("[SMB2_Lib::findResp_injectFileListing] " + str(m))
 				break
@@ -1445,7 +1438,7 @@ class SMB2_Lib(object):
 			# Rebuild the stacked packets
 			return self.restackSMBChainedMessages(requests)
 
-		except Exception, e:
+		except Exception as e:
 			self.logger.error("[SMB2_Lib::handleRequest] " + str(traceback.format_exc()))
 			return rawData
 	# Gets passed the data from the SMBetray(MiTMModule) parseServerResponse function
@@ -1648,6 +1641,6 @@ class SMB2_Lib(object):
 			# Rebuild the stacked packets
 			return self.restackSMBChainedMessages(responses, as_client = False)
 
-		except Exception, e:
+		except Exception as e:
 			self.logger.error("[SMB2_Lib::handleResponse] " + str(traceback.format_exc()))
 			return rawData

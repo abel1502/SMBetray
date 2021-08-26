@@ -1,4 +1,3 @@
-#!/usr/bin/python
 '''
 	EvenBetterCap: 			A modularized transparent TCP & UDP proxy, for editing packets on the fly in arp-cache
 							poisoning attacks. This is a solution in response to bettercap's requirement to know 
@@ -33,7 +32,7 @@ import threading
 import subprocess
 import netifaces
 from multiprocessing import Manager
-import Queue
+import queue
 import copy
 import os
 from threading import Thread
@@ -347,10 +346,10 @@ class MiTMServer(Thread):
 
 			# Provide the mitmObject with all of the data it needs to perform the attack
 			mitmObject.MiTMModuleConfig['Connection'] 			= self.connectionManager[key]
-			mitmObject.MiTMModuleConfig['clientRequestQueue'] 	= Queue.Queue()
-			mitmObject.MiTMModuleConfig['hackedRequestQueue'] 	= Queue.Queue()
-			mitmObject.MiTMModuleConfig['serverResponseQueue'] 	= Queue.Queue()
-			mitmObject.MiTMModuleConfig['hackedResponseQueue'] 	= Queue.Queue()
+			mitmObject.MiTMModuleConfig['clientRequestQueue'] 	= queue.Queue()
+			mitmObject.MiTMModuleConfig['hackedRequestQueue'] 	= queue.Queue()
+			mitmObject.MiTMModuleConfig['serverResponseQueue'] 	= queue.Queue()
+			mitmObject.MiTMModuleConfig['hackedResponseQueue'] 	= queue.Queue()
 
 			# These exist for connections where the data does not have a 1:1 ratio of send to recieve
 			# ie. the client sends 1 request and the server sends two replies
@@ -423,7 +422,7 @@ class ASyncSender(Thread):
 				self.client.close()
 				return False
 				break
-			except Exception, e:
+			except Exception as e:
 				# self.logger.info("[ASyncSender::sendToClient] " + str(e) + traceback.format_exc())
 				self.logger.debug("[ebcLib.py] Victim disconnected: [END] " + str(self.connInfo))
 				self.client.close()
@@ -437,7 +436,7 @@ class ASyncSender(Thread):
 		try:
 			self.client.shutdown()
 			self.client.close()
-		except Exception, e:
+		except Exception as e:
 			pass
 		super(ASyncSender, self).join(timeout)
 class ASyncReciever(Thread):
@@ -459,7 +458,7 @@ class ASyncReciever(Thread):
 				self.client.close()
 				return False
 				break
-			except Exception, e:
+			except Exception as e:
 				self.logger.info("[ebcLib.py] Victim disconnected: [END] " + str(self.connInfo))
 				self.client.close()
 				return False
@@ -471,7 +470,7 @@ class ASyncReciever(Thread):
 		try:
 			self.client.shutdown()
 			self.client.close()
-		except Exception, e:
+		except Exception as e:
 			try:
 				self.client.close()
 			except:
@@ -542,7 +541,7 @@ class MiTMModule(object):
 				return
 			else:
 				raise Exception("Only SOCK_STREAM and SOCK_DGRAM are supported!")
-		except Exception, e:
+		except Exception as e:
 			# self.logger.error("[" + self.__class__.__name__ + "::run_mitm] " + str(e) + traceback.format_exc())
 			if clientHandler is not None and clientHandler.isAlive():
 				clientHandler.join(0)
@@ -558,19 +557,19 @@ class MiTMModule(object):
 			 		continue
 				for z in splitData(req):
 					self.MiTMModuleConfig['hackedRequestQueue'].put(z)
-			except Exception, e:
+			except Exception as e:
 			 	self.logger.error("[" + self.__class__.__name__ + "::threadListenForRequests] " + str(e) + " " + str(traceback.format_exc()))
 		pass
 	def threadListenForResponses(self):
 		while True:
 			try:
-			 	resp = self.parseServerResponse(self.MiTMModuleConfig['serverResponseQueue'].get())
-			 	if (resp == None or len(resp) == 0):
-			 		continue
-			 	for z in splitData(resp):
+				resp = self.parseServerResponse(self.MiTMModuleConfig['serverResponseQueue'].get())
+				if (resp == None or len(resp) == 0):
+					continue
+				for z in splitData(resp):
 					self.MiTMModuleConfig['hackedResponseQueue'].put(z)
-			except Exception, e:
-			 	self.logger.error("[" + self.__class__.__name__ + "::threadListenForResponses] " + str(e) + " " + str(traceback.format_exc()))
+			except Exception as e:
+				self.logger.error("[" + self.__class__.__name__ + "::threadListenForResponses] " + str(e) + " " + str(traceback.format_exc()))
 		pass
 	
 	# Closes the connection and sets NETClient to None

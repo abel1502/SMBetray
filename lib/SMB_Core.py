@@ -7,16 +7,14 @@ from impacket.smb3structs import SMB2Packet, SMB2_DIALECT_311, SMB2_DIALECT_302,
 from impacket.smb import NewSMBPacket, SMB_DIALECT
 
 from impacket import ntlm
-from binascii import hexlify
+from binascii import hexlify, unhexlify
 from impacket import crypto
+from impacket import spnego
 import copy
-import os
 import hmac
 import hashlib
 
-import time
-import calendar
-import struct
+import socket
 from Crypto.Hash import MD4
 
 class SystemInfo(object):
@@ -252,7 +250,7 @@ class SMB_Core(object):
 				# Required after the last iteration to get the remaining data
 				smbMessages.append(SMB2Packet(data = copy.deepcopy(data[z:])))
 				return smbMessages
-		except Exception, e:
+		except Exception as e:
 			logging.error("[SMB_Core::splitSMBChainedMessages] " + str(traceback.format_exc()))
 			return data
 	def restackSMBChainedMessages(self, SMBPacketList):
@@ -282,7 +280,7 @@ class SMB_Core(object):
 				# Return the ready-to-send packet
 				return str(netbios) + str(reStacked)
 
-		except Exception, e:
+		except Exception as e:
 			logging.error("[SMB_Core::restackSMBChainedMessages] " + str(traceback.format_exc()))
 			return SMBPacketList
 
@@ -306,7 +304,7 @@ class SMB_Core(object):
 			response = client.recv(999999)
 			client.close()
 			del(client)
-		except Exception, e:
+		except Exception as e:
 			# It's not supported, bummer
 			dialects.remove(SMB_DIALECT)
 		else:
@@ -344,7 +342,7 @@ class SMB_Core(object):
 				raise
 			else:
 				pass
-		except Exception, e:
+		except Exception as e:
 			# It's not supported
 			dialects.remove(SMB2_DIALECT_002)
 		else:
@@ -382,7 +380,7 @@ class SMB_Core(object):
 				raise
 			else:
 				pass
-		except Exception, e:
+		except Exception as e:
 			# It's not supported
 			dialects.remove(SMB2_DIALECT_21)
 		else:
@@ -420,7 +418,7 @@ class SMB_Core(object):
 				raise
 			else:
 				pass
-		except Exception, e:
+		except Exception as e:
 			# It's not supported
 			dialects.remove(SMB2_DIALECT_30)
 		else:
@@ -458,7 +456,7 @@ class SMB_Core(object):
 				raise
 			else:
 				pass
-		except Exception, e:
+		except Exception as e:
 			# It's not supported
 			dialects.remove(SMB2_DIALECT_302)
 		else:
@@ -527,7 +525,7 @@ class SMB_Core(object):
 			response = client.recv(999999)
 			client.close()
 			del(client)
-		except Exception, e:
+		except Exception as e:
 			# It's not supported, bummer
 			return False
 		else:

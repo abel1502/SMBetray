@@ -1,7 +1,6 @@
-from SMB_Core import SMBKey
-from ebcLib import MiTMModule
+from .SMB_Core import SMBKey
+from .ebcLib import MiTMModule
 from binascii import hexlify, unhexlify
-import hashlib
 import traceback
 from pyasn1.codec.der import decoder, encoder
 from impacket.krb5.crypto import Key, _enctype_table
@@ -9,7 +8,6 @@ from impacket.krb5.asn1 import *
 import logging
 import struct
 from pyasn1.error import PyAsn1Error
-import multiprocessing
 import copy
 
 class K2TKerb(MiTMModule):
@@ -49,7 +47,7 @@ class K2TKerb(MiTMModule):
 								salt = ''
 							else:
 								salt = str(etype2['salt'])
-						except PyAsn1Error, e:
+						except PyAsn1Error as e:
 							salt = ''
 						if(etype2['etype'] not in self.PREAUTH_ENCTYPES):
 							self.PREAUTH_ENCTYPES[etype2['etype']] = []
@@ -63,7 +61,7 @@ class K2TKerb(MiTMModule):
 								salt = ''
 							else:
 								salt = str(etype['salt'])
-						except PyAsn1Error, e:
+						except PyAsn1Error as e:
 							salt = ''
 
 						if(etype['etype'] not in self.PREAUTH_ENCTYPES):
@@ -73,7 +71,7 @@ class K2TKerb(MiTMModule):
 		except PyAsn1Error:
 			# self.logger.error("[K2TKerb parse_PreauthError3]")
 			pass
-		except Exception, e:
+		except Exception as e:
 			print("[K2TKerb::parse_PreauthError]: " + str(e) + " " + traceback.format_exc())
 		# self.info['kerbSessionSalts_Lock'].release()
 
@@ -123,7 +121,7 @@ class K2TKerb(MiTMModule):
 							continue
 
 			# self.info['poppedCredsDB_Lock'].release()
-		except Exception, e:
+		except Exception as e:
 			self.logger.error("K2TKerb[parseServerResponse] Type 11 Error: " + str(e) + " " + traceback.format_exc())
 		# self.info['kerbSessionSalts_Lock'].release()
 		# self.info['kerbSessionKeys_Lock'].release()
@@ -150,7 +148,7 @@ class K2TKerb(MiTMModule):
 					plainText 		= cipher.decrypt(ksessionKey, 8, str(cipherText))
 					kerbSessionKey 	= ksessionKey
 					break
-				except Exception, e:
+				except Exception as e:
 					self.logger.info("Failed to decrypt TGS with " + hexlify(ksessionKey.contents))
 					pass
 			if plainText == None:
@@ -172,7 +170,7 @@ class K2TKerb(MiTMModule):
 
 			# SMBKey(sessionBaseKey = ServiceSessionKey.contents[:16], dialect = self.SESSION_DIALECT, kerbSessionKey = smbKey.KERBEROS_SESSION_KEY, kerbServiceSessionKey = ServiceSessionKey.contents)
 
-		except Exception, e:
+		except Exception as e:
 			print("K2TKerb[parseServerResponse] Type 13 Error: " + str(e)+ " " + traceback.format_exc())
 		pass
 		# self.info['kerbSessionKeys_Lock'].release()
@@ -274,7 +272,7 @@ class K2TKerb(MiTMModule):
 				self.logger.info("UNKNOWN MESSAGE TYPE: " + str(mtype))
 			#'''
 			return response
-		except Exception, e:
+		except Exception as e:
 			self.logger.error("K2TKerb[parseServerResponse] " + str(e) + " " + traceback.format_exc())
 		return response
 

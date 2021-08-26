@@ -1,16 +1,12 @@
 from impacket.smb3 import *
 from impacket.smb3structs import *
 from impacket import smb
-import struct
-import socket
-import os
-import copy
 from random import randint
 from impacket import spnego
 import traceback
 import logging
 from binascii import hexlify, unhexlify
-from SMB_Core import SMB_Core
+from .SMB_Core import SMB_Core
 
 
 class SMB1_Lib(SMB_Core):
@@ -103,7 +99,7 @@ class SMB1_Lib(SMB_Core):
 					packet = self.negotiateReq_DowngradeToNTLM(packet)
 
 			return self.restackSMBChainedMessages([packet])
-		except Exception, e:
+		except Exception as e:
 			return rawData
 	# 
 	def handleResponse(self, rawData):
@@ -118,6 +114,6 @@ class SMB1_Lib(SMB_Core):
 					packet = self.negotiateResp_StripSMBDialects(packet)
 
 			return self.restackSMBChainedMessages([packet])
-		except Exception, e:
+		except Exception as e:
 			return rawData
 

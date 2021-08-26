@@ -1,4 +1,4 @@
 #!/bin/bash
-apt install libnetfilter-queue-dev libpcap0.8-dev python-nfqueue conntrack
+apt install libnetfilter-queue-dev libpcap0.8-dev conntrack
 
-pip install -r requirements.txt
+pip3.6 install -r requirements.txt

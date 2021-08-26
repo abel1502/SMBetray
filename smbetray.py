@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#!/usr/local/bin/python3.6
 import argparse
 from binascii import hexlify, unhexlify
 import logging
@@ -8,6 +8,7 @@ import os
 from multiprocessing import Manager, Queue
 from threading import Lock, Thread
 import copy
+import traceback
 
 # 
 from lib import ebcLib
@@ -100,11 +101,11 @@ class CredFileWatcher(Thread):
 							try:
 								self.poppedCredsDB[hash(popped)] = copy.deepcopy(popped)
 								logging.info("[CredFileWatcher] Loaded creds of " + popped.domain + "/" + popped.username)
-							except Exception, e:
+							except Exception as e:
 								logging.error("[CredFileWatcher::watch] " + str(e))
 								pass
 							self.poppedCredsDB_Lock.release()
-					except Exception, e:
+					except Exception as e:
 						logging.error("[CredFileWatcher::watch] " + str(e))
 						continue
 			time.sleep(.5)
@@ -164,7 +165,7 @@ class SMBetray(ebcLib.MiTMModule):
 				self.CLT_MESSAGE_LENGTH 		= raw.length + 4
 				# Don't return a response, thus we hold off passing the request to the server
 				return
-		except Exception, e:
+		except Exception as e:
 			logging.debug("[SMBetray::parseClientRequest] " + str(e) + " " + traceback.format_exc())
 			return request
 
@@ -210,7 +211,7 @@ class SMBetray(ebcLib.MiTMModule):
 				self.SRV_MESSAGE_LENGTH 		= raw.length + 4
 				# Don't return a response, thus we hold off replying to the client
 				return
-		except Exception, e:
+		except Exception as e:
 			logging.debug("[SMBetray::parseServerResponse] " + str(e) + " " + traceback.format_exc())
 			return response
 
@@ -386,7 +387,7 @@ def runAttack(config):
 			z.join(0)
 		if(fileWatcherThread != None):
 			fileWatcherThread.join(0)
-	except Exception, e:
+	except Exception as e:
 		m = logging.error(str(traceback.format_exc()))
 		logging.error("Error: " + str(m))
 if __name__ == "__main__":
