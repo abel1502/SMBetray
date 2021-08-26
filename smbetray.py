@@ -173,13 +173,13 @@ class SMBetray(ebcLib.MiTMModule):
 		# Now lets do something with it
 
 		# Handle SMBv1 packets
-		if(request[4:8] == SMB1_Header):
-			if(self.SMBTool.__class__.__name__ != 'SMB1_Lib'):
+		if request[4:8] == SMB1_Header:
+			if not isinstance(self.SMBTool, SMB1_Lib):
 				self.SMBTool = SMB1_Lib(self.info, self.MiTMModuleConfig)
 			return self.SMBTool.handleRequest(request)
 		# Handle SMBv2 packets
-		if(request[4:8] == SMB2_Header):
-			if(self.SMBTool.__class__.__name__ != 'SMB2_Lib'):
+		if request[4:8] == SMB2_Header:
+			if not isinstance(self.SMBTool, SMB2_Lib):
 				self.SMBTool = SMB2_Lib(self.info, self.MiTMModuleConfig)
 			return self.SMBTool.handleRequest(request)
 
