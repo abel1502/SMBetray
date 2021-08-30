@@ -1403,8 +1403,6 @@ class SMB2_Lib(object):
 					else:
 						self.sessionSetupReq_NTLMv2_Auth(requests[i])
 
-
-
 				if(self.KNOWN_KEY == None):
 					self.hailMary_keyGeneration(copy.deepcopy(requests[i]))
 
@@ -1431,9 +1429,6 @@ class SMB2_Lib(object):
 						self.BACKDOOR_REQ_DATA[int(requests[i]['MessageID'])] = copy.deepcopy(requests[i])
 						requests[i] = self.generateEchoRequest(requests[i])
 						continue
-
-					
-					
 
 			# Rebuild the stacked packets
 			return self.restackSMBChainedMessages(requests)
